@@ -203,6 +203,12 @@ void push(Formula* formula, Clause* cla) {
     formula->top = cla;
 }
 
+void pop(Formula* formula) {
+    Clause* tmp  = formula->top;
+    formula->top = tmp->pre_s;
+    tmp->pre_s   = NULL;
+}
+
 Formula* load_cnf_file(const char* filename) {
     int c;
     FILE* fp = fopen(filename, "r");
@@ -249,6 +255,7 @@ Formula* load_cnf_file(const char* filename) {
             tail = formula->cla + i;
         }
     }
+    fclose(fp);
     print_formula(formula);
     print_formula2(formula);
     formula->start = clause_sort(formula->start);
@@ -298,27 +305,56 @@ void propagate(Formula* formula, int16_t var) {
     formula->start = clause_sort(cla_head.next);
 }
 
+uint16_t restore(Formula* formula) {
+    if (formula->top == NULL || formula->top->sat_assign == 0)
+        return 0;
+
+    int16_t var     = formula->top->sat_assign;
+    Clause* cla_now = formula->start;
+    while (cla_now != NULL) {
+        if (check_neg_lit(cla_now, var))
+            ++cla_now->var_count;
+        cla_now = cla_now->next;
+    }
+    while (formula->top != NULL && formula->top->sat_assign == var) {
+        formula->top->next = formula->start;
+        formula->start     = formula->top;
+        pop(formula);
+    }
+    formula->start->next = clause_sort(formula->start->next);
+    return var;
+}
 int main() {
     /*printf("%d\n", Literal_bit);*/
+    /*Formula* formula = load_cnf_file("dubois22.cnf");*/
+    /*Formula* formula = load_cnf_file("aim-100-1_6-no-1.cnf");*/
     Formula* formula = load_cnf_file("33.cnf");
+    int16_t l_bound = 0;
+    int16_t var;
 
     /*while (true) {*/
-    for (int ccc = 0; ccc < 10; ++ccc) {
+    for (int ccc = 0; ccc < 1000; ++ccc) {
         if (formula->start == NULL) {
             printf("SAT\n");
             print_clause(formula->assign);
             break;
         }
-        else if (formula->start->var_count > 0) {
-            int16_t var = get_assign(formula->start, formula->assign, 0);
+        else if ((formula->start->var_count > 0) && \
+                 ((var = get_assign(formula->start, formula->assign, l_bound)) != 0)) {
             set_lit(formula->assign, var);
-            printf("Add var %d\n", var);
             propagate(formula, var);
-            print_formula2(formula);
+            l_bound = 0;
         }
         else {
+            l_bound = restore(formula);
+            if (l_bound == 0) {
+                printf("UNSAT\n");
+                break;
+            }
             // BACK
         }
+        printf("Add var %d\n", var);
+        print_formula2(formula);
     }
     return 0;
 }
