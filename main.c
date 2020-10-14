@@ -5,6 +5,7 @@
 # include <string.h>
 
 typedef uint32_t Literal;
+typedef int16_t  Variable;
 # define Literal_bit            (8 * sizeof(Literal))
 # define Literal_block(num_var) ((num_var / Literal_bit) + ((num_var % Literal_bit) > 0))
 
@@ -13,7 +14,7 @@ typedef struct Clause {
     Literal*  pos_lit;
     Literal*  neg_lit;
     uint8_t   var_count;
-    int16_t   sat_assign;
+    Variable  sat_assign;
     struct Clause* next;
     struct Clause* pre_s;
 } Clause;
@@ -57,11 +58,11 @@ void exiterr(const char* msg) {
     exit(-1);
 }
 
-int16_t get_int16(FILE* fp) {
+Variable get_int16(FILE* fp) {
     int c;
     bool fl   = false;
     bool sign = true;
-    int16_t ans = 0;
+    Variable ans = 0;
     while ((c = fgetc(fp)) != EOF) {
         if ((char)c == '-') {
             sign = false;
@@ -118,6 +119,9 @@ void print_clause(Clause* cla) {
 }
 
 void print_formula(Formula* formula) {
+#ifndef DBG 
+    return;
+#endif
     printf("=========================\n");
     for (int i = 0; i < formula->num_cla; ++i) {
         printf("%3d: ", i);
@@ -126,6 +130,9 @@ void print_formula(Formula* formula) {
 }
 
 void print_formula2(Formula* formula) {
+#ifndef DBG 
+    return;
+#endif
     Clause* cla = formula->start;
     printf("=========================\n");
     while (cla != NULL) {
@@ -194,7 +201,6 @@ Clause* clause_sort(Clause* cla) {
         cla_tmp = cla_tmp->next;
         cla_tmp->next = NULL;
     }
-
     return cla_ret;
 }
 
@@ -211,10 +217,14 @@ void pop(Formula* formula) {
 
 Formula* load_cnf_file(const char* filename) {
     int c;
-    FILE* fp = fopen(filename, "r");
-
+    FILE* fp;
     uint16_t num_var = 0;
     uint16_t num_cla = 0;
+
+    if ((fp = fopen(filename, "r")) == NULL) {
+        printf("%s not exist\n", filename);
+        exit(-1);
+    }
 
     while ((c = fgetc(fp)) != EOF) {
         if ((char) c == 'c')
@@ -232,13 +242,13 @@ Formula* load_cnf_file(const char* filename) {
 
     Formula* formula = init_formula(num_var, num_cla);
     Clause*  tail    = NULL;
+    Variable var;
     for (int i = 0; i < num_cla; ++i) {
-        int16_t tmp;
         while (true) {
-            if ((tmp = get_int16(fp)) == 0)
+            if ((var = get_int16(fp)) == 0)
                 break;
             else
-                set_lit(formula->cla + i, tmp);
+                set_lit(formula->cla + i, var);
                 /*printf("%p\n", (cla_pos(formula, i) + ((-tmp - 1) / 8)));*/
             ++formula->cla[i].var_count;
         }
@@ -264,7 +274,7 @@ Formula* load_cnf_file(const char* filename) {
     return formula;
 }
 
-int16_t get_assign(const Clause* target, const Clause* assign, int16_t l_bound) {
+Variable get_assign(const Clause* target, const Clause* assign, Variable l_bound) {
     l_bound = l_bound < 0? -l_bound: l_bound;
 
     for (int i = 0; i < Literal_block(NVAR(target)); ++i) {
@@ -283,7 +293,7 @@ int16_t get_assign(const Clause* target, const Clause* assign, int16_t l_bound) 
     return 0;
 }
 
-void propagate(Formula* formula, int16_t var) {
+void propagate(Formula* formula, Variable var) {
     Clause  cla_head;
     Clause* cla_next;
     Clause* cla_now = &cla_head;
@@ -309,7 +319,7 @@ uint16_t restore(Formula* formula) {
     if (formula->top == NULL || formula->top->sat_assign == 0)
         return 0;
 
-    int16_t var     = formula->top->sat_assign;
+    Variable var     = formula->top->sat_assign;
     Clause* cla_now = formula->start;
     while (cla_now != NULL) {
         if (check_neg_lit(cla_now, var))
@@ -324,13 +334,16 @@ uint16_t restore(Formula* formula) {
     formula->start->next = clause_sort(formula->start->next);
     return var;
 }
-int main() {
-    /*printf("%d\n", Literal_bit);*/
-    /*Formula* formula = load_cnf_file("dubois22.cnf");*/
-    /*Formula* formula = load_cnf_file("aim-100-1_6-no-1.cnf");*/
-    Formula* formula = load_cnf_file("33.cnf");
-    int16_t l_bound = 0;
-    int16_t var;
+int main(int argc, char **argv) {
+
+    if (argc != 2) {
+        printf("Usage %s cnf_file\n", argv[0]);
+        exit(-1);
+    }
+
+    Formula* formula = load_cnf_file(argv[1]);
+    Variable l_bound = 0;
+    Variable var;
 
     /*while (true) {*/
     for (int ccc = 0; ccc < 1000; ++ccc) {
@@ -343,17 +356,17 @@ int main() {
                  ((var = get_assign(formula->start, formula->assign, l_bound)) != 0)) {
             set_lit(formula->assign, var);
             propagate(formula, var);
+            printf("Add var %d\n", var);
             l_bound = 0;
         }
         else {
             l_bound = restore(formula);
+            printf("Restore var %d\n", l_bound);
             if (l_bound == 0) {
                 printf("UNSAT\n");
                 break;
             }
-            // BACK
         }
-        printf("Add var %d\n", var);
         print_formula2(formula);
     }
     return 0;
